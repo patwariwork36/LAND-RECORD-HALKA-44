@@ -953,11 +953,11 @@
         async function fetchCSV(gid, tabName = '') {
             const csvUrl = makeCSVUrl(gid);
 
-            // 1. PapaParse (Highly reliable for Google Sheets CORS, 6s timeout)
+            // 1. PapaParse (Highly reliable for Google Sheets CORS, 30s timeout)
             // PapaParse inherently handles the redirect correctly in most modern browsers.
             try {
                 return await new Promise((resolve, reject) => {
-                    const t = setTimeout(() => reject(new Error('PapaParse timeout')), 6000);
+                    const t = setTimeout(() => reject(new Error('PapaParse timeout')), 30000);
                     Papa.parse(csvUrl, {
                         download: true, header: false, skipEmptyLines: false,
                         complete: (result) => {
@@ -977,9 +977,9 @@
                 console.warn(`⚠️ PapaParse failed: ${tabName} — ${e.message}`);
             }
 
-            // 2. Direct fetch as fallback (4s timeout)
+            // 2. Direct fetch as fallback (15s timeout)
             try {
-                const res = await fetchWithTimeout(csvUrl, 4000);
+                const res = await fetchWithTimeout(csvUrl, 15000);
                 if (res.ok) {
                     const text = await res.text();
                     if (isValidCSV(text)) {
@@ -991,10 +991,10 @@
                 console.warn(`⚠️ Direct failed: ${tabName} — ${e.message}`);
             }
 
-            // 3. Proxy fallback (Last resort, 6s timeout, corsproxy.io)
+            // 3. Proxy fallback (Last resort, 15s timeout, corsproxy.io)
             const proxy = `https://corsproxy.io/?${encodeURIComponent(csvUrl)}`;
             try {
-                const res = await fetchWithTimeout(proxy, 6000);
+                const res = await fetchWithTimeout(proxy, 15000);
                 if (res.ok) {
                     const text = await res.text();
                     if (isValidCSV(text)) {
