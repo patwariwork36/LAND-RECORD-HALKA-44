@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>भूमि रिकॉर्ड खोज प्रणाली – हल्का 43 एवं 28</title>
+    <title>भूमि रिकॉर्ड खोज प्रणाली – हल्का 44</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.jsdelivr.net/npm/toastify-js"></script>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/toastify-js/src/toastify.min.css">
@@ -15,7 +15,7 @@
     <style>
         :root {
             --royal: #1a1a6e;
-            --royal-mid: #2d2db0;
+            --royal-mid: #0c0ce6;
             --gold: #f0a500;
             --gold-light: #ffd966;
             --cream: #fffdf5;
@@ -707,7 +707,7 @@
                         तहसील पलारी जिला बलौदाबाज़ार-भाटापारा छ०ग०
                     </div>
                     <div style="margin-top:4px; font-size:14px; color:var(--gold-light); font-weight:600;">
-                        हल्का 43 एवं 28 — ग्रामवार खसरा / बसरा सूची
+                        हल्का 44 — ग्रामवार खसरा / बसरा सूची
                     </div>
                 </div>
                 <div
@@ -861,8 +861,8 @@
 
         // ── Halka Mapping ──────────────────────────────
         const HALKA_MAP = {
-            'गबौद': 43, 'तिल्दा': 43,
-            'छड़िया': 28, 'छेरकापुर': 28
+            'सोनारदेवरी': 44, 'धौराभाठा': 44,
+            'रामपुर': 44, 'कोसमंदा': 44
         };
         function getHalka(village) {
             const h = HALKA_MAP[village];
@@ -879,12 +879,12 @@
         // ── नई Multi-Tab Google Sheet Config ───────────────────────
         // ══════════════════════════════════════════════════════════════
         // Published base URL (File → Share → Publish to web से मिला)
-        const PUBLISHED_BASE = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vRImiJKxrvQj1NGbSRosAN1hRcqDEZF9Bvaucffx_Qq-iLgFQcgt2q3qzef1diUmjwa4eNVfgO6XuwG/pub';
+        const PUBLISHED_BASE = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vTbjfinOHxrL4cMudTQs4lw3xCBHJzSQ_fURjbGD2QhSnvBbcpoHN2KiIgWamJCHmDtkxCuQaOyHyej/pub';
 
         // हर गाँव के लिए tab GIDs
         const VILLAGE_TABS = {
-            'छेरकापुर': {
-                halka: 28,
+            'सोनारदेवरी': {
+                halka: 44,
                 khasra:        1125745063,
                 dcsKharif:      812281055,
                 dcsRabi:        500848412,
@@ -892,8 +892,8 @@
                 charaiCeiling: 1665923394,   // चराई सीलिंग एवं सिंचित असिंचित डाटा
                 nistarPatrak:  1804672264,   // निस्तार पत्रक डिटेल्स
             },
-            'छड़िया': {
-                halka: 28,
+            'धौराभाठा': {
+                halka: 44,
                 khasra:        1702197918,
                 dcsKharif:        8447409,
                 dcsRabi:       1499142573,
@@ -901,8 +901,8 @@
                 charaiCeiling: 1740498830,   // चराई सीलिंग एवं सिंचित असिंचित डाटा
                 nistarPatrak:  1031814681,   // निस्तार पत्रक डिटेल्स
             },
-            'तिल्दा': {
-                halka: 43,
+            'रामपुर': {
+                halka: 44,
                 khasra:         405640121,
                 dcsKharif:      747813224,
                 dcsRabi:       1746853077,
@@ -910,8 +910,8 @@
                 charaiCeiling: 1518461563,   // चराई सीलिंग एवं सिंचित असिंचित डाटा
                 nistarPatrak:   795996909,   // निस्तार पत्रक डिटेल्स
             },
-            'गबौद': {
-                halka: 43,
+            'कोसमंदा': {
+                halka: 44,
                 khasra:         420059656,
                 dcsKharif:      153278540,
                 dcsRabi:        459902298,
@@ -926,7 +926,22 @@
             return `${PUBLISHED_BASE}?gid=${gid}&single=true&output=csv&t=${Date.now()}`;
         }
 
-        // Proxy race से एक CSV text लाना
+        // ── Helper: check if text is valid CSV (not an HTML error page) ──
+        function isValidCSV(text) {
+            if (!text || typeof text !== 'string') return false;
+            const t = text.trim();
+            return t.length > 0
+                && !t.startsWith('<!DOCTYPE')
+                && !t.startsWith('<html')
+                && !t.startsWith('<HTML')
+                && !t.startsWith('{"error')
+                && !t.startsWith("{'error");
+        }
+
+        // ── Helper: sleep ──
+        function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+        // Proxy race से एक CSV text लाना — सब parallel चलते हैं, जो पहले response दे वो जीतता है
         const PROXY_PREFIXES = [
             'https://api.allorigins.win/raw?url=',
             'https://api.codetabs.com/v1/proxy?quest=',
@@ -935,23 +950,46 @@
 
         function fetchCSV(gid, tabName = '') {
             const csvUrl = makeCSVUrl(gid);
+
+            // सभी 3 proxies parallel में
             const proxied = PROXY_PREFIXES.map(p =>
-                fetch(p + encodeURIComponent(csvUrl), { 
+                fetch(p + encodeURIComponent(csvUrl), {
                     signal: AbortSignal.timeout(20000),
                     cache: 'no-store'
                 })
-                .then(r => { 
-                    if (!r.ok) throw new Error(`HTTP ${r.status}`); 
-                    return r.text(); 
+                .then(r => {
+                    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+                    return r.text();
+                })
+                .then(text => {
+                    if (!isValidCSV(text)) throw new Error('Invalid CSV');
+                    console.log(`✅ Proxy OK: ${tabName}`);
+                    return text;
                 })
             );
-            const direct = new Promise((res, rej) => {
+
+            // PapaParse direct भी parallel में
+            const direct = new Promise((resolve, reject) => {
                 Papa.parse(csvUrl, {
                     download: true, header: false, skipEmptyLines: false,
-                    complete: (result) => res(Papa.unparse(result.data)),
-                    error: (err) => rej(new Error('PapaParse error')),
+                    complete: (result) => {
+                        if (!result.data || result.data.length === 0) {
+                            reject(new Error('empty data'));
+                            return;
+                        }
+                        const csv = Papa.unparse(result.data);
+                        if (isValidCSV(csv)) {
+                            console.log(`✅ PapaParse OK: ${tabName}`);
+                            resolve(csv);
+                        } else {
+                            reject(new Error('Invalid CSV'));
+                        }
+                    },
+                    error: (err) => reject(new Error('PapaParse error')),
                 });
             });
+
+            // जो पहले successful हो वो जीते, सब fail हों तभी reject
             return new Promise((resolve, reject) => {
                 let failCount = 0;
                 const all = [...proxied, direct];
@@ -1234,7 +1272,6 @@
                 toast('ताजा डेटा लोड शुरू हो रहा है...', 'info');
             }
 
-            // Cached data instantly return
             if (cachedRecords) {
                 records = cachedRecords;
                 fillVillages();
@@ -1246,98 +1283,129 @@
             }
 
             const badge = document.getElementById('recordCountBadge');
-            badge.textContent = '⏳ डेटा लोड हो रहा है...';
-
-            function onSuccess() {
-                fillVillages();
-                badge.innerHTML = `✅ ${records.length} रिकॉर्ड लोड <span onclick="loadData(true)" style="cursor:pointer;text-decoration:underline;margin-left:8px;font-size:11px;">🔄 रिफ्रेश</span>`;
-                toast(`${records.length} रिकॉर्ड सफलतापूर्वक लोड हुए`, 'success');
-                switchTab('statistics');
-            }
-
-            function onError(msg, detailedErr = '') {
-                console.error('Data Load Error:', detailedErr || msg);
-                badge.innerHTML = `❌ लोड विफल &nbsp;<button onclick="loadData()" style="background:#1a1a6e;color:#fff;border:none;border-radius:6px;padding:3px 10px;font-size:12px;cursor:pointer;font-weight:700;">🔄 पुनः प्रयास</button>
-                <input type="file" id="manualCSV" style="display:none" onchange="handleManualUpload(event)">
-                <button onclick="document.getElementById('manualCSV').click()" style="background:#059669;color:#fff;border:none;border-radius:6px;padding:3px 10px;font-size:12px;cursor:pointer;font-weight:700;margin-left:5px;">📁 फाइल अपलोड</button>`;
+            function setBadge(html) { badge.innerHTML = html; }
+            function onError(msg) {
+                console.error('Data Load Error:', msg);
+                setBadge(`❌ लोड विफल &nbsp;<button onclick="loadData()" style="background:#1a1a6e;color:#fff;border:none;border-radius:6px;padding:3px 10px;font-size:12px;cursor:pointer;font-weight:700;">🔄 पुनः प्रयास</button>`);
                 toast(msg || 'नेटवर्क त्रुटि — कृपया इंटरनेट जांचें', 'error');
             }
 
-            try {
-                badge.textContent = '⏳ डेटा लोड हो रहा है (24 tabs)...';
+            const villageNames = Object.keys(VILLAGE_TABS);
+            const totalVillages = villageNames.length;
+            const khasraCsvCache = {};
 
-                const villageNames = Object.keys(VILLAGE_TABS);
-                const failedTabs = [];
+            // ══ PHASE 1: खसरा सूची — Sequential (Google rate-limit safe) ══
+            try {
+                let allRows = [];
+                const failedPhase1 = [];
+
+                for (let i = 0; i < villageNames.length; i++) {
+                    const vName = villageNames[i];
+                    const cfg = VILLAGE_TABS[vName];
+                    setBadge(`⏳ चरण 1/2: ${vName} (${i + 1}/${totalVillages}) खसरा सूची…`);
+
+                    let csv = '';
+                    try {
+                        csv = await fetchCSV(cfg.khasra, vName + ' खसरा सूची');
+                    } catch (e) {
+                        console.error('Phase1 khasra failed ' + vName + ':', e.message);
+                        failedPhase1.push(vName);
+                        if (i < villageNames.length - 1) await sleep(500);
+                        continue;
+                    }
+
+                    if (!csv) { failedPhase1.push(vName); continue; }
+
+                    khasraCsvCache[vName] = csv;
+                    try {
+                        const khasraRows = parseCSVToRows(csv, 1);
+                        const merged = mergeVillageData(vName, cfg.halka, khasraRows, [], [], [], [], []);
+                        allRows = allRows.concat(merged);
+                        console.log('Phase1 ' + vName + ': ' + merged.length + ' records');
+                    } catch (e) {
+                        console.error('Phase1 parse error ' + vName + ':', e);
+                        failedPhase1.push(vName);
+                    }
+
+                    if (i < villageNames.length - 1) await sleep(300);
+                }
+
+                if (allRows.length === 0) {
+                    onError('कोई भी रिकॉर्ड लोड नहीं हुआ — इंटरनेट या Google Sheet की जाँच करें');
+                    return;
+                }
+
+                records = allRows;
+                fillVillages();
+                const warnP1 = failedPhase1.length ? ' (' + failedPhase1.join(', ') + ' अधूरा)' : '';
+                setBadge('⏳ ' + records.length + ' रिकॉर्ड — फसल डेटा लोड हो रहा है…' + warnP1);
+                toast(records.length + ' खसरा रिकॉर्ड मिले — अब खोज शुरू कर सकते हैं!', 'success');
+                switchTab('statistics');
+
+            } catch (err) {
+                console.error('Phase1 crashed:', err);
+                onError('डेटा लोड विफल — कृपया पुनः प्रयास करें');
+                return;
+            }
+
+            // ══ PHASE 2: Optional tabs — Background, Sequential ══
+            (async () => {
                 const failedVillages = [];
 
-                const villageResults = await Promise.all(
-                    villageNames.map(async (vName) => {
-                        const cfg = VILLAGE_TABS[vName];
-                        try {
-                            // allSettled — एक tab fail हो तो भी बाकी मिलेंगे
-                            const results = await Promise.allSettled([
-                                fetchCSV(cfg.khasra,        `${vName} (Khasra List)`),
-                                fetchCSV(cfg.dcsKharif,     `${vName} (DCS Kharif)`),
-                                fetchCSV(cfg.dcsRabi,       `${vName} (DCS Rabi)`),
-                                fetchCSV(cfg.bhuiyya,       `${vName} (Bhuiyya)`),
-                                fetchCSV(cfg.charaiCeiling, `${vName} (Charai)`),
-                                fetchCSV(cfg.nistarPatrak,  `${vName} (Nistar)`),
-                            ]);
+                for (let i = 0; i < villageNames.length; i++) {
+                    const vName = villageNames[i];
+                    const cfg = VILLAGE_TABS[vName];
+                    const khasraCSV = khasraCsvCache[vName];
+                    if (!khasraCSV) continue;
 
-                            const labels = ['Khasra', 'DCS Kharif', 'DCS Rabi', 'Bhuiyya', 'Charai', 'Nistar'];
-                            const safe = results.map((r, idx) => {
-                                if (r.status === 'fulfilled' && r.value) return r.value;
-                                failedTabs.push(`${vName} ${labels[idx]}`);
-                                return '';
-                            });
+                    setBadge('⏳ ' + records.length + ' रिकॉर्ड — ' + vName + ' (' + (i+1) + '/' + totalVillages + ') फसल डेटा…');
 
-                            const [khasraCSV, dcsKCSV, dcsRCSV, bhuiyyaCSV, charaiCSV, nistarCSV] = safe;
+                    try {
+                        const [dkRes, drRes, bhRes, chRes, nsRes] = await Promise.allSettled([
+                            fetchCSV(cfg.dcsKharif,     vName + ' DCS Kharif'),
+                            fetchCSV(cfg.dcsRabi,       vName + ' DCS Rabi'),
+                            fetchCSV(cfg.bhuiyya,       vName + ' Bhuiyya'),
+                            fetchCSV(cfg.charaiCeiling, vName + ' Charai'),
+                            fetchCSV(cfg.nistarPatrak,  vName + ' Nistar'),
+                        ]);
 
-                            // खसरा सूची ज़रूरी है — नहीं मिली तो इस village को skip
-                            if (!khasraCSV) {
-                                console.error(`${vName}: खसरा सूची नहीं मिली — village skip`);
-                                failedVillages.push(vName);
-                                return [];
-                            }
+                        const safeGet = function(res) { return (res.status === 'fulfilled' && res.value) ? res.value : ''; };
+                        const dcsKCSV    = safeGet(dkRes);
+                        const dcsRCSV    = safeGet(drRes);
+                        const bhuiyyaCSV = safeGet(bhRes);
+                        const charaiCSV  = safeGet(chRes);
+                        const nistarCSV  = safeGet(nsRes);
 
-                            const khasraRows  = parseCSVToRows(khasraCSV,  1);
-                            const dcsKRows    = dcsKCSV    ? parseCSVToRows(dcsKCSV,    0) : [];
-                            const dcsRRows    = dcsRCSV    ? parseCSVToRows(dcsRCSV,    0) : [];
-                            const bhuiyyaRows = bhuiyyaCSV ? parseCSVToRows(bhuiyyaCSV, 2) : [];
-                            const charaiRows  = charaiCSV  ? parseCSVToRows(charaiCSV,  1) : [];
-                            const nistarRows  = nistarCSV  ? parseCSVToRows(nistarCSV,  1) : [];
+                        const khasraRows  = parseCSVToRows(khasraCSV,   1);
+                        const dcsKRows    = dcsKCSV    ? parseCSVToRows(dcsKCSV,    0) : [];
+                        const dcsRRows    = dcsRCSV    ? parseCSVToRows(dcsRCSV,    0) : [];
+                        const bhuiyyaRows = bhuiyyaCSV ? parseCSVToRows(bhuiyyaCSV, 2) : [];
+                        const charaiRows  = charaiCSV  ? parseCSVToRows(charaiCSV,  1) : [];
+                        const nistarRows  = nistarCSV  ? parseCSVToRows(nistarCSV,  1) : [];
 
-                            return mergeVillageData(vName, cfg.halka, khasraRows, dcsKRows, dcsRRows, bhuiyyaRows, charaiRows, nistarRows);
-                        } catch (vErr) {
-                            console.error(`Error loading village ${vName}:`, vErr);
-                            failedVillages.push(vName);
-                            return [];
-                        }
-                    })
-                );
+                        const merged = mergeVillageData(vName, cfg.halka, khasraRows, dcsKRows, dcsRRows, bhuiyyaRows, charaiRows, nistarRows);
+                        const vLabel = vName + ' (हल्का ' + cfg.halka + ')';
+                        records = records.filter(function(r) { return r.v !== vLabel; }).concat(merged);
+                        console.log('Phase2 ' + vName + ': ' + merged.length + ' records (full)');
 
-                records = villageResults.flat();
-                if (records.length === 0) {
-                    throw new Error('कोई भी रिकॉर्ड लोड नहीं हुआ — Google Sheet "Publish to web" चेक करें');
+                    } catch (vErr) {
+                        console.error('Phase2 ' + vName + ':', vErr);
+                        failedVillages.push(vName);
+                    }
+
+                    if (i < villageNames.length - 1) await sleep(300);
                 }
 
                 cachedRecords = records;
                 fillVillages();
-
-                // Success badge with warnings if partial
-                const warnVillage = failedVillages.length ? ` ⚠️ (${failedVillages.join(', ')} अधूरा)` : '';
-                const warnTabs    = (failedTabs.length && !failedVillages.length) ? ` ⚠️ (${failedTabs.length} tab अधूरा)` : '';
-                badge.innerHTML = `✅ ${records.length} रिकॉर्ड लोड${warnVillage}${warnTabs} <span onclick="loadData(true)" style="cursor:pointer;text-decoration:underline;margin-left:8px;font-size:11px;">🔄 रिफ्रेश</span>`;
-                toast(`${records.length} रिकॉर्ड सफलतापूर्वक लोड हुए`, failedVillages.length ? 'info' : 'success');
-                if (failedTabs.length) console.warn('Failed tabs:', failedTabs);
-                switchTab('statistics');
-
-            } catch (err) {
-                console.error('Multi-tab load failed:', err);
-                const displayMsg = err.message || 'डेटा लोड विफल — कृपया इंटरनेट जांचें या शीट चेक करें';
-                onError(displayMsg, err);
-            }
+                const warnPart = failedVillages.length ? ' (' + failedVillages.join(', ') + ' अधूरा)' : '';
+                document.getElementById('recordCountBadge').innerHTML =
+                    '✅ ' + records.length + ' रिकॉर्ड (पूर्ण)' + warnPart +
+                    ' <span onclick="loadData(true)" style="cursor:pointer;text-decoration:underline;margin-left:8px;font-size:11px;">🔄 रिफ्रेश</span>';
+                if (!failedVillages.length) toast('सभी फसल व अन्य डेटा भी लोड हो गए ✅', 'success');
+            })();
         }
+
 
         function handleManualUpload(e) {
             // नई multi-tab sheet के साथ manual upload काम नहीं करता
@@ -1347,7 +1415,7 @@
 
 
         function fillVillages() {
-            const desiredOrder = ['छेरकापुर (हल्का 28)', 'छड़िया (हल्का 28)', 'तिल्दा (हल्का 43)', 'गबौद (हल्का 43)'];
+            const desiredOrder = ['सोनारदेवरी (हल्का 44)', 'धौराभाठा (हल्का 44)', 'रामपुर (हल्का 44)', 'कोसमंदा (हल्का 44)'];
             const sel = document.getElementById('villageInput');
             const vals = [...new Set(records.map(r => r.v).filter(Boolean))].sort((a, b) => {
                 const idxA = desiredOrder.indexOf(a);
@@ -2271,7 +2339,7 @@
   ${r.ceiling ? `<tr><th>⚖️ सीलिंग भूमि</th><td>${r.ceiling}</td></tr>` : ''}
   ${r.nistar ? `<tr><th>📝 निस्तार विवरण</th><td>${r.nistar}</td></tr>` : ''}
 </table>
-<p class="footer">भूमि रिकॉर्ड डैशबोर्ड — हल्का 43 एवं 28</p>
+<p class="footer">भूमि रिकॉर्ड डैशबोर्ड — हल्का 44</p>
 <script>window.onload=function(){window.print();}<\/script>
 </body></html>`);
             pw.document.close();
@@ -2365,7 +2433,7 @@
   <thead><tr><th>#</th><th>खसरा</th><th>भूमिस्वामी</th><th style="text-align:center;">क्षेत्रफल (हे.)</th><th>भूमि प्रकार</th><th>खरीफ फसल</th><th>खरीफ रकबा</th><th>रबी फसल</th><th>रबी रकबा</th><th>दुफसली रकबा</th><th>NA Land (खरीफ)</th><th>Fallow (खरीफ)</th><th>NA Land (रबी)</th><th>Fallow (रबी)</th><th>चराई भूमि</th><th>सीलिंग भूमि</th><th>निस्तार विवरण</th></tr></thead>
   <tbody>${rowsHtml}</tbody>
 </table>
-<p class="footer">भूमि रिकॉर्ड डैशबोर्ड — हल्का 43 एवं 28 | कम्प्यूटर जनित रिकॉर्ड — सत्यापन हेतु पटवारी कार्यालय से संपर्क करें</p>
+<p class="footer">भूमि रिकॉर्ड डैशबोर्ड — हल्का 44 | कम्प्यूटर जनित रिकॉर्ड — सत्यापन हेतु पटवारी कार्यालय से संपर्क करें</p>
 <script>window.onload=function(){window.print();}<\/script>
 </body></html>`);
             pw.document.close();
@@ -2504,7 +2572,7 @@ ${uniqueBasras ? `<p style="text-align:center;font-size:13px;margin-top:-15px;ma
 </table>
 
 <p class="footer">
-  भूमि रिकॉर्ड डैशबोर्ड — हल्का 43 एवं 28 |
+  भूमि रिकॉर्ड डैशबोर्ड — हल्का 44 |
   कम्प्यूटर जनित रिकॉर्ड — सत्यापन हेतु पटवारी कार्यालय से संपर्क करें
 </p>
 <script>window.onload = function() { window.print(); }<\/script>
@@ -2710,10 +2778,10 @@ ${uniqueBasras ? `<p style="text-align:center;font-size:13px;margin-top:-15px;ma
                     <select id="statGramSelect" onchange="updateGramSummary()"
                       style="width:100%;padding:12px 16px;border-radius:14px;border:1.5px solid rgba(255,255,255,0.18);background:rgba(255,255,255,0.08);color:#fff;font-size:14px;font-weight:700;font-family:'Noto Sans Devanagari',sans-serif;appearance:none;cursor:pointer;outline:none;">
                       <option value="" style="background:#1e293b;color:#fff;">— ग्राम चुनें —</option>
-                      <option value="छेरकापुर (हल्का 28)" style="background:#1e293b;color:#fff;">छेरकापुर (हल्का 28)</option>
-                      <option value="छड़िया (हल्का 28)" style="background:#1e293b;color:#fff;">छड़िया (हल्का 28)</option>
-                      <option value="तिल्दा (हल्का 43)" style="background:#1e293b;color:#fff;">तिल्दा (हल्का 43)</option>
-                      <option value="गबौद (हल्का 43)" style="background:#1e293b;color:#fff;">गबौद (हल्का 43)</option>
+                      <option value="सोनारदेवरी (हल्का 44)" style="background:#1e293b;color:#fff;">सोनारदेवरी (हल्का 44)</option>
+                      <option value="धौराभाठा (हल्का 44)" style="background:#1e293b;color:#fff;">धौराभाठा (हल्का 44)</option>
+                      <option value="रामपुर (हल्का 44)" style="background:#1e293b;color:#fff;">रामपुर (हल्का 44)</option>
+                      <option value="कोसमंदा (हल्का 44)" style="background:#1e293b;color:#fff;">कोसमंदा (हल्का 44)</option>
                     </select>
                     <div style="position:absolute;right:14px;top:50%;transform:translateY(-50%);pointer-events:none;color:rgba(255,255,255,0.5);font-size:14px;">▼</div>
                   </div>
@@ -2886,127 +2954,73 @@ ${uniqueBasras ? `<p style="text-align:center;font-size:13px;margin-top:-15px;ma
                 <div class="dash-section-title">🗺️ ग्रामवार मकबूजा एवं गैरमकबूज़ा रकबा (हेक्टेयर)</div>
                 <div style="font-size: 11px; color: var(--text-muted); font-weight: 700; margin-top: -8px; margin-bottom: 12px; font-family:'Noto Sans Devanagari',sans-serif;">(भू-अभिलेख से प्राप्त अपरिवर्तित आकड़े)</div>
                 <div style="display:flex; flex-direction:row; gap:14px; margin-top:16px; overflow-x:auto; padding-bottom:6px;">
-
-                  <!-- छेरकापुर -->
-                  <div style="background:linear-gradient(160deg,#1a1a6e 0%,#2d2db0 60%,#3b5bdb 100%); border-radius:16px; padding:14px 16px; color:#fff; box-shadow:0 4px 16px rgba(26,26,110,0.22); position:relative; overflow:hidden; flex:1; min-width:170px;">
-                    <div style="position:absolute;top:-12px;right:-12px;width:60px;height:60px;border-radius:50%;background:rgba(255,255,255,0.07);"></div>
-                    <div style="font-size:10px;font-weight:800;opacity:0.65;text-transform:uppercase;letter-spacing:0.1em;margin-bottom:4px;">हल्का 28</div>
-                    <div style="font-size:16px;font-weight:900;margin-bottom:10px;font-family:'Noto Sans Devanagari',sans-serif;line-height:1.2;">छेरकापुर</div>
-                    <div style="display:flex;flex-direction:column;gap:7px;">
-                      <div style="background:rgba(255,255,255,0.12);border-radius:10px;padding:7px 10px;display:flex;justify-content:space-between;align-items:center;">
-                        <div>
-                          <div style="font-size:12px;font-weight:700;opacity:0.7;text-transform:uppercase;letter-spacing:0.07em;">मकबूजा रकबा</div>
-                          <div id="chk-maqbuza" style="font-size:16px;font-weight:900;margin-top:1px;">1134.913 हे.</div>
+                  ${grams.map((g, index) => {
+                      const gramRecs = records.filter(r => r.v === g);
+                      const govtSeeds = gramRecs.filter(r => r.owner && r.owner.includes('शासकीय'));
+                      const govtBns   = new Set(govtSeeds.map(r => (r.bn || '').trim()).filter(b => b && b !== '' && b !== '-' && b !== '0'));
+                      const govtAll   = gramRecs.filter(r => 
+                          (r.owner && r.owner.includes('शासकीय')) || govtBns.has((r.bn || '').trim())
+                      );
+                      const govtIdSet = new Set(govtAll.map(x => x.id));
+                      const privAll   = gramRecs.filter(r => !govtIdSet.has(r.id));
+                      
+                      const govtArea  = govtAll.reduce((s, r) => s + parseFloat(r.area || 0), 0);
+                      const privArea  = privAll.reduce((s, r) => s + parseFloat(r.area || 0), 0);
+                      const totalArea = govtArea + privArea;
+                      
+                      const cleanName = g.split(' (हल्का')[0];
+                      const halkaNum = g.includes('हल्का') ? g.match(/हल्का\s*(\d+)/)[1] : '44';
+                      
+                      const colors = [
+                          'linear-gradient(160deg,#1a1a6e 0%,#2d2db0 60%,#3b5bdb 100%)',
+                          'linear-gradient(160deg,#065f46 0%,#059669 60%,#34d399 100%)',
+                          'linear-gradient(160deg,#7c2d12 0%,#c2410c 60%,#ea580c 100%)',
+                          'linear-gradient(160deg,#4c1d95 0%,#6d28d9 60%,#8b5cf6 100%)'
+                      ];
+                      const shadows = [
+                          'rgba(26,26,110,0.22)',
+                          'rgba(5,150,105,0.22)',
+                          'rgba(194,65,12,0.22)',
+                          'rgba(109,40,217,0.22)'
+                      ];
+                      
+                      const color = colors[index % colors.length];
+                      const shadow = shadows[index % shadows.length];
+                      
+                      return `
+                        <div style="background:${color}; border-radius:16px; padding:14px 16px; color:#fff; box-shadow:0 4px 16px ${shadow}; position:relative; overflow:hidden; flex:1; min-width:170px;">
+                          <div style="position:absolute;top:-12px;right:-12px;width:60px;height:60px;border-radius:50%;background:rgba(255,255,255,0.07);"></div>
+                          <div style="font-size:10px;font-weight:800;opacity:0.65;text-transform:uppercase;letter-spacing:0.1em;margin-bottom:4px;">हल्का ${halkaNum}</div>
+                          <div style="font-size:16px;font-weight:900;margin-bottom:10px;font-family:'Noto Sans Devanagari',sans-serif;line-height:1.2;">${cleanName}</div>
+                          <div style="display:flex;flex-direction:column;gap:7px;">
+                            <div style="background:rgba(255,255,255,0.12);border-radius:10px;padding:7px 10px;display:flex;justify-content:space-between;align-items:center;">
+                              <div>
+                                <div style="font-size:12px;font-weight:700;opacity:0.7;text-transform:uppercase;letter-spacing:0.07em;">मकबूजा रकबा</div>
+                                <div style="font-size:16px;font-weight:900;margin-top:1px;">${privArea.toFixed(3)} हे.</div>
+                              </div>
+                              <div style="font-size:18px;opacity:0.5;">🟢</div>
+                            </div>
+                            <div style="background:rgba(255,255,255,0.08);border-radius:10px;padding:7px 10px;display:flex;justify-content:space-between;align-items:center;">
+                              <div>
+                                <div style="font-size:12px;font-weight:700;opacity:0.7;text-transform:uppercase;letter-spacing:0.07em;">गैरमकबूज़ा रकबा</div>
+                                <div style="font-size:16px;font-weight:900;margin-top:1px;">${govtArea.toFixed(3)} हे.</div>
+                              </div>
+                              <div style="font-size:18px;opacity:0.5;">🔴</div>
+                            </div>
+                            <div style="background:rgba(255,255,255,0.18);border-radius:10px;padding:7px 10px;display:flex;justify-content:space-between;align-items:center;border:1px solid rgba(255,255,255,0.25);">
+                              <div>
+                                <div style="font-size:12px;font-weight:700;opacity:0.8;text-transform:uppercase;letter-spacing:0.07em;">कुल रकबा</div>
+                                <div style="font-size:17px;font-weight:900;margin-top:1px;">${totalArea.toFixed(3)} हे.</div>
+                              </div>
+                              <div style="font-size:18px;opacity:0.6;">📐</div>
+                            </div>
+                          </div>
                         </div>
-                        <div style="font-size:18px;opacity:0.5;">🟢</div>
-                      </div>
-                      <div style="background:rgba(255,255,255,0.08);border-radius:10px;padding:7px 10px;display:flex;justify-content:space-between;align-items:center;">
-                        <div>
-                          <div style="font-size:12px;font-weight:700;opacity:0.7;text-transform:uppercase;letter-spacing:0.07em;">गैरमकबूज़ा रकबा</div>
-                          <div id="chk-gair" style="font-size:16px;font-weight:900;margin-top:1px;">112.120 हे.</div>
-                        </div>
-                        <div style="font-size:18px;opacity:0.5;">🔴</div>
-                      </div>
-                      <div style="background:rgba(255,255,255,0.18);border-radius:10px;padding:7px 10px;display:flex;justify-content:space-between;align-items:center;border:1px solid rgba(255,255,255,0.25);">
-                        <div>
-                          <div style="font-size:12px;font-weight:700;opacity:0.8;text-transform:uppercase;letter-spacing:0.07em;">कुल रकबा</div>
-                          <div id="chk-kul" style="font-size:17px;font-weight:900;margin-top:1px;">1247.033 हे.</div>
-                        </div>
-                        <div style="font-size:18px;opacity:0.6;">📐</div>
-                      </div>
-                    </div>
-                  </div>
-
-                  <!-- छड़िया -->
-                  <div style="background:linear-gradient(160deg,#065f46 0%,#059669 60%,#34d399 100%); border-radius:16px; padding:14px 16px; color:#fff; box-shadow:0 4px 16px rgba(5,150,105,0.22); position:relative; overflow:hidden; flex:1; min-width:170px;">
-                    <div style="position:absolute;top:-12px;right:-12px;width:60px;height:60px;border-radius:50%;background:rgba(255,255,255,0.07);"></div>
-                    <div style="font-size:10px;font-weight:800;opacity:0.65;text-transform:uppercase;letter-spacing:0.1em;margin-bottom:4px;">हल्का 28</div>
-                    <div style="font-size:16px;font-weight:900;margin-bottom:10px;font-family:'Noto Sans Devanagari',sans-serif;line-height:1.2;">छड़िया</div>
-                    <div style="display:flex;flex-direction:column;gap:7px;">
-                      <div style="background:rgba(255,255,255,0.12);border-radius:10px;padding:7px 10px;display:flex;justify-content:space-between;align-items:center;">
-                        <div>
-                          <div style="font-size:12px;font-weight:700;opacity:0.7;text-transform:uppercase;letter-spacing:0.07em;">मकबूजा रकबा</div>
-                          <div id="chd-maqbuza" style="font-size:16px;font-weight:900;margin-top:1px;">321.706 हे.</div>
-                        </div>
-                        <div style="font-size:18px;opacity:0.5;">🟢</div>
-                      </div>
-                      <div style="background:rgba(255,255,255,0.08);border-radius:10px;padding:7px 10px;display:flex;justify-content:space-between;align-items:center;">
-                        <div>
-                          <div style="font-size:12px;font-weight:700;opacity:0.7;text-transform:uppercase;letter-spacing:0.07em;">गैरमकबूज़ा रकबा</div>
-                          <div id="chd-gair" style="font-size:16px;font-weight:900;margin-top:1px;">54.550 हे.</div>
-                        </div>
-                        <div style="font-size:18px;opacity:0.5;">🔴</div>
-                      </div>
-                      <div style="background:rgba(255,255,255,0.18);border-radius:10px;padding:7px 10px;display:flex;justify-content:space-between;align-items:center;border:1px solid rgba(255,255,255,0.25);">
-                        <div>
-                          <div style="font-size:12px;font-weight:700;opacity:0.8;text-transform:uppercase;letter-spacing:0.07em;">कुल रकबा</div>
-                          <div id="chd-kul" style="font-size:17px;font-weight:900;margin-top:1px;">376.256 हे.</div>
-                        </div>
-                        <div style="font-size:18px;opacity:0.6;">📐</div>
-                      </div>
-                    </div>
-                  </div>
-
-                  <!-- तिल्दा -->
-                  <div style="background:linear-gradient(160deg,#7c2d12 0%,#c2410c 60%,#ea580c 100%); border-radius:16px; padding:14px 16px; color:#fff; box-shadow:0 4px 16px rgba(194,65,12,0.22); position:relative; overflow:hidden; flex:1; min-width:170px;">
-                    <div style="position:absolute;top:-12px;right:-12px;width:60px;height:60px;border-radius:50%;background:rgba(255,255,255,0.07);"></div>
-                    <div style="font-size:10px;font-weight:800;opacity:0.65;text-transform:uppercase;letter-spacing:0.1em;margin-bottom:4px;">हल्का 43</div>
-                    <div style="font-size:16px;font-weight:900;margin-bottom:10px;font-family:'Noto Sans Devanagari',sans-serif;line-height:1.2;">तिल्दा</div>
-                    <div style="display:flex;flex-direction:column;gap:7px;">
-                      <div style="background:rgba(255,255,255,0.12);border-radius:10px;padding:7px 10px;display:flex;justify-content:space-between;align-items:center;">
-                        <div>
-                          <div style="font-size:12px;font-weight:700;opacity:0.7;text-transform:uppercase;letter-spacing:0.07em;">मकबूजा रकबा</div>
-                          <div id="tld-maqbuza" style="font-size:16px;font-weight:900;margin-top:1px;">340.150 हे.</div>
-                        </div>
-                        <div style="font-size:18px;opacity:0.5;">🟢</div>
-                      </div>
-                      <div style="background:rgba(255,255,255,0.08);border-radius:10px;padding:7px 10px;display:flex;justify-content:space-between;align-items:center;">
-                        <div>
-                          <div style="font-size:12px;font-weight:700;opacity:0.7;text-transform:uppercase;letter-spacing:0.07em;">गैरमकबूज़ा रकबा</div>
-                          <div id="tld-gair" style="font-size:16px;font-weight:900;margin-top:1px;">55.615 हे.</div>
-                        </div>
-                        <div style="font-size:18px;opacity:0.5;">🔴</div>
-                      </div>
-                      <div style="background:rgba(255,255,255,0.18);border-radius:10px;padding:7px 10px;display:flex;justify-content:space-between;align-items:center;border:1px solid rgba(255,255,255,0.25);">
-                        <div>
-                          <div style="font-size:12px;font-weight:700;opacity:0.8;text-transform:uppercase;letter-spacing:0.07em;">कुल रकबा</div>
-                          <div id="tld-kul" style="font-size:17px;font-weight:900;margin-top:1px;">395.765 हे.</div>
-                        </div>
-                        <div style="font-size:18px;opacity:0.6;">📐</div>
-                      </div>
-                    </div>
-                  </div>
-
-                  <!-- गबौद -->
-                  <div style="background:linear-gradient(160deg,#4c1d95 0%,#6d28d9 60%,#8b5cf6 100%); border-radius:16px; padding:14px 16px; color:#fff; box-shadow:0 4px 16px rgba(109,40,217,0.22); position:relative; overflow:hidden; flex:1; min-width:170px;">
-                    <div style="position:absolute;top:-12px;right:-12px;width:60px;height:60px;border-radius:50%;background:rgba(255,255,255,0.07);"></div>
-                    <div style="font-size:10px;font-weight:800;opacity:0.65;text-transform:uppercase;letter-spacing:0.1em;margin-bottom:4px;">हल्का 43</div>
-                    <div style="font-size:16px;font-weight:900;margin-bottom:10px;font-family:'Noto Sans Devanagari',sans-serif;line-height:1.2;">गबौद</div>
-                    <div style="display:flex;flex-direction:column;gap:7px;">
-                      <div style="background:rgba(255,255,255,0.12);border-radius:10px;padding:7px 10px;display:flex;justify-content:space-between;align-items:center;">
-                        <div>
-                          <div style="font-size:12px;font-weight:700;opacity:0.7;text-transform:uppercase;letter-spacing:0.07em;">मकबूजा रकबा</div>
-                          <div id="gbd-maqbuza" style="font-size:16px;font-weight:900;margin-top:1px;">253.696 हे.</div>
-                        </div>
-                        <div style="font-size:18px;opacity:0.5;">🟢</div>
-                      </div>
-                      <div style="background:rgba(255,255,255,0.08);border-radius:10px;padding:7px 10px;display:flex;justify-content:space-between;align-items:center;">
-                        <div>
-                          <div style="font-size:12px;font-weight:700;opacity:0.7;text-transform:uppercase;letter-spacing:0.07em;">गैरमकबूज़ा रकबा</div>
-                          <div id="gbd-gair" style="font-size:16px;font-weight:900;margin-top:1px;">29.870 हे.</div>
-                        </div>
-                        <div style="font-size:18px;opacity:0.5;">🔴</div>
-                      </div>
-                      <div style="background:rgba(255,255,255,0.18);border-radius:10px;padding:7px 10px;display:flex;justify-content:space-between;align-items:center;border:1px solid rgba(255,255,255,0.25);">
-                        <div>
-                          <div style="font-size:12px;font-weight:700;opacity:0.8;text-transform:uppercase;letter-spacing:0.07em;">कुल रकबा</div>
-                          <div id="gbd-kul" style="font-size:17px;font-weight:900;margin-top:1px;">283.566 हे.</div>
-                        </div>
-                        <div style="font-size:18px;opacity:0.6;">📐</div>
-                      </div>
-                  </div>
+                      `;
+                  }).join('')}
                 </div>
-            </div>`;
+              </div>
+            </div>\`;
 
             statDiv.innerHTML = html;
         }
@@ -3644,7 +3658,7 @@ ${uniqueBasras ? `<p style="text-align:center;font-size:13px;margin-top:-15px;ma
             }
 
             // Identify unique villages for dropdown and sort by custom order
-            const desiredOrder = ['छेरकापुर (हल्का 28)', 'छड़िया (हल्का 28)', 'तिल्दा (हल्का 43)', 'गबौद (हल्का 43)'];
+            const desiredOrder = ['सोनारदेवरी (हल्का 44)', 'धौराभाठा (हल्का 44)', 'रामपुर (हल्का 44)', 'कोसमंदा (हल्का 44)'];
             const grams = [...new Set(records.map(r => r.v).filter(Boolean))].sort((a, b) => {
                 const idxA = desiredOrder.indexOf(a);
                 const idxB = desiredOrder.indexOf(b);
@@ -3655,7 +3669,7 @@ ${uniqueBasras ? `<p style="text-align:center;font-size:13px;margin-top:-15px;ma
             <div style="animation:slideUp 0.4s ease both; max-width:900px; margin:0 auto;">
               <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:20px;">
                 <h2 style="font-size:22px;font-weight:900;color:var(--royal);font-family:'Noto Sans Devanagari',sans-serif;">
-                  🏛️ शासकीय भूमि रिकॉर्ड्स (हल्का 28 एवं 43)
+                  🏛️ शासकीय भूमि रिकॉर्ड्स (हल्का 44)
                 </h2>
               </div>
 
@@ -3681,7 +3695,7 @@ ${uniqueBasras ? `<p style="text-align:center;font-size:13px;margin-top:-15px;ma
                                 <option value="" disabled selected>— प्रकार चुनें —</option>
                                 <option value="charai">चराई भूमि</option>
                                 <option value="ceiling">सीलिंग भूमि</option>
-                                <option value="nistar">निस्तार/वाजिबुल अर्ज़ का विवरण (हल्का 28 एवं 43)</option>
+                                <option value="nistar">निस्तार/वाजिबुल अर्ज़ का विवरण (हल्का 44)</option>
                             </select>
                         </div>
                     </div>
@@ -3950,7 +3964,7 @@ ${uniqueBasras ? `<p style="text-align:center;font-size:13px;margin-top:-15px;ma
   </tr></thead>
   <tbody>${rowsHtml}</tbody>
 </table>
-<p class="footer">भूमि रिकॉर्ड डैशबोर्ड — हल्का 43 एवं 28 | कम्प्यूटर जनित रिकॉर्ड</p>
+<p class="footer">भूमि रिकॉर्ड डैशबोर्ड — हल्का 44 | कम्प्यूटर जनित रिकॉर्ड</p>
 <script>window.onload=function(){window.print();}<\/script>
 </body></html>`);
             pw.document.close();
