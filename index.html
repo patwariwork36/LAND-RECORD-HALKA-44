@@ -949,71 +949,64 @@
                 .finally(() => clearTimeout(timer));
         }
 
-        // ── Fetch a single CSV tab: direct → one proxy fallback (fast, 1 retry) ──
+        // ── Fetch a single CSV tab: Fast timeouts, PapaParse as primary fallback ──
         async function fetchCSV(gid, tabName = '') {
             const csvUrl = makeCSVUrl(gid);
-            const PROXIES = [
-                `https://corsproxy.io/?${encodeURIComponent(csvUrl)}`,
-                `https://api.allorigins.win/raw?url=${encodeURIComponent(csvUrl)}`,
-            ];
 
-            // Try up to 2 attempts (first attempt + 1 retry with backoff)
-            for (let attempt = 0; attempt < 2; attempt++) {
-                if (attempt > 0) {
-                    console.log(`🔄 Retry for ${tabName}…`);
-                    await sleep(600);
-                }
-
-                // 1. Direct fetch (10s timeout)
-                try {
-                    const res = await fetchWithTimeout(csvUrl, 10000);
-                    if (res.ok) {
-                        const text = await res.text();
-                        if (isValidCSV(text)) {
-                            console.log(`✅ Direct OK: ${tabName}`);
-                            return text;
-                        }
-                    }
-                } catch (e) {
-                    console.warn(`⚠️ Direct failed: ${tabName} — ${e.message}`);
-                }
-
-                // 2. Proxy fallback (10s timeout each, try both proxies)
-                for (const proxy of PROXIES) {
-                    try {
-                        const res = await fetchWithTimeout(proxy, 10000);
-                        if (res.ok) {
-                            const text = await res.text();
-                            if (isValidCSV(text)) {
-                                console.log(`✅ Proxy OK: ${tabName}`);
-                                return text;
-                            }
-                        }
-                    } catch (e) {
-                        console.warn(`⚠️ Proxy failed: ${tabName} — ${e.message}`);
-                    }
-                }
-            }
-
-            // 3. PapaParse as absolute last resort
+            // 1. PapaParse (Highly reliable for Google Sheets CORS, 6s timeout)
+            // PapaParse inherently handles the redirect correctly in most modern browsers.
             try {
                 return await new Promise((resolve, reject) => {
-                    const t = setTimeout(() => reject(new Error('PapaParse timeout')), 12000);
+                    const t = setTimeout(() => reject(new Error('PapaParse timeout')), 6000);
                     Papa.parse(csvUrl, {
                         download: true, header: false, skipEmptyLines: false,
                         complete: (result) => {
                             clearTimeout(t);
                             const csv = Papa.unparse(result.data);
-                            if (isValidCSV(csv)) resolve(csv);
-                            else reject(new Error('PapaParse invalid content'));
+                            if (isValidCSV(csv)) {
+                                console.log(`✅ PapaParse OK: ${tabName}`);
+                                resolve(csv);
+                            } else {
+                                reject(new Error('Invalid CSV format'));
+                            }
                         },
                         error: (e) => { clearTimeout(t); reject(e); }
                     });
                 });
             } catch (e) {
-                console.error(`❌ All failed for ${tabName}:`, e.message);
-                throw new Error(`Fetch failed: ${tabName}`);
+                console.warn(`⚠️ PapaParse failed: ${tabName} — ${e.message}`);
             }
+
+            // 2. Direct fetch as fallback (4s timeout)
+            try {
+                const res = await fetchWithTimeout(csvUrl, 4000);
+                if (res.ok) {
+                    const text = await res.text();
+                    if (isValidCSV(text)) {
+                        console.log(`✅ Direct OK: ${tabName}`);
+                        return text;
+                    }
+                }
+            } catch (e) {
+                console.warn(`⚠️ Direct failed: ${tabName} — ${e.message}`);
+            }
+
+            // 3. Proxy fallback (Last resort, 6s timeout, corsproxy.io)
+            const proxy = `https://corsproxy.io/?${encodeURIComponent(csvUrl)}`;
+            try {
+                const res = await fetchWithTimeout(proxy, 6000);
+                if (res.ok) {
+                    const text = await res.text();
+                    if (isValidCSV(text)) {
+                        console.log(`✅ Proxy OK: ${tabName}`);
+                        return text;
+                    }
+                }
+            } catch (e) {
+                console.error(`❌ Proxy failed: ${tabName} — ${e.message}`);
+            }
+
+            throw new Error(`All fetch methods failed for ${tabName}`);
         }
 
         // CSV text → array of objects (header = row 1 by default, or custom headerRow index)
