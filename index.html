@@ -15,7 +15,7 @@
     <style>
         :root {
             --royal: #1a1a6e;
-            --royal-mid: #2d2db0;
+            --royal-mid: #0c0ce6;
             --gold: #f0a500;
             --gold-light: #ffd966;
             --cream: #fffdf5;
@@ -942,7 +942,7 @@
         function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
         // ── Helper: fetch with manual timeout (works in ALL browsers, unlike AbortSignal.timeout) ──
-        function fetchWithTimeout(url, timeoutMs = 10000) {
+        function fetchWithTimeout(url, timeoutMs = 8000) {
             const controller = new AbortController();
             const timer = setTimeout(() => controller.abort(), timeoutMs);
             return fetch(url, { signal: controller.signal, cache: 'no-store' })
@@ -961,7 +961,7 @@
             for (let attempt = 0; attempt < 2; attempt++) {
                 if (attempt > 0) {
                     console.log(`🔄 Retry for ${tabName}…`);
-                    await sleep(2000);
+                    await sleep(600);
                 }
 
                 // 1. Direct fetch (10s timeout)
@@ -1298,44 +1298,88 @@
             const badge = document.getElementById('recordCountBadge');
 
             function setBadge(html) { badge.innerHTML = html; }
-            function onSuccess(failedVillages) {
-                fillVillages();
-                const warnPart = failedVillages.length
-                    ? ` <span style="color:#f0a500;">(${failedVillages.join(', ')} लोड नहीं हो सका)</span>` : '';
-                setBadge(`✅ ${records.length} रिकॉर्ड${warnPart} <span onclick="loadData(true)" style="cursor:pointer;text-decoration:underline;margin-left:8px;font-size:11px;">🔄 रिफ्रेश</span>`);
-                if (failedVillages.length) {
-                    toast(`${records.length} रिकॉर्ड लोड (${failedVillages.length} ग्राम अधूरा)`, 'info');
-                } else {
-                    toast(`${records.length} रिकॉर्ड सफलतापूर्वक लोड हुए`, 'success');
-                }
-                switchTab('statistics');
-            }
-
             function onError(msg) {
                 console.error('Data Load Error:', msg);
                 setBadge(`❌ लोड विफल &nbsp;<button onclick="loadData()" style="background:#1a1a6e;color:#fff;border:none;border-radius:6px;padding:3px 10px;font-size:12px;cursor:pointer;font-weight:700;">🔄 पुनः प्रयास</button>`);
                 toast(msg || 'नेटवर्क त्रुटि — कृपया इंटरनेट जांचें', 'error');
             }
 
+            const villageNames = Object.keys(VILLAGE_TABS);
+            const totalVillages = villageNames.length;
+            const khasraCsvCache = {};  // village → khasra CSV cache (Phase 1 → Phase 2)
+
+            // ════════════════════════════════════════════════════════
+            // PHASE 1: सिर्फ खसरा सूची (mandatory) — सभी गाँवों के
+            // यह सबसे जरूरी data है, जल्दी load होता है
+            // ════════════════════════════════════════════════════════
             try {
-                const villageNames = Object.keys(VILLAGE_TABS);
-                const totalVillages = villageNames.length;
-                const failedVillages = [];
+                setBadge(`⏳ चरण 1/2: खसरा सूची लोड हो रही है…`);
+
+                const phase1Results = await Promise.allSettled(
+                    villageNames.map(vName =>
+                        fetchCSV(VILLAGE_TABS[vName].khasra, `${vName} (Khasra List)`)
+                            .then(csv => ({ vName, csv }))
+                    )
+                );
+
                 let allRows = [];
+                const failedPhase1 = [];
+
+                for (const res of phase1Results) {
+                    if (res.status === 'rejected' || !res.value) {
+                        const vName = res.reason?.vName || '?';
+                        console.error(`❌ Phase1 Khasra failed:`, res.reason);
+                        failedPhase1.push(vName);
+                        continue;
+                    }
+                    const { vName, csv } = res.value;
+                    const cfg = VILLAGE_TABS[vName];
+                    khasraCsvCache[vName] = csv;  // cache for Phase 2
+                    try {
+                        const khasraRows = parseCSVToRows(csv, 1);
+                        // Merge with empty optional data for now
+                        const merged = mergeVillageData(vName, cfg.halka, khasraRows, [], [], [], [], []);
+                        allRows = allRows.concat(merged);
+                        console.log(`✅ Phase1 ${vName}: ${merged.length} records`);
+                    } catch (e) {
+                        console.error(`❌ Phase1 parse error ${vName}:`, e);
+                        failedPhase1.push(vName);
+                    }
+                }
+
+                if (allRows.length === 0) {
+                    onError('कोई भी रिकॉर्ड लोड नहीं हुआ — इंटरनेट या Google Sheet की जाँच करें');
+                    return;
+                }
+
+                // App को तुरंत usable बनाओ (खसरा data के साथ)
+                records = allRows;
+                fillVillages();
+                const warnP1 = failedPhase1.length ? ` <span style="color:#f0a500;">(${failedPhase1.join(', ')} अधूरा)</span>` : '';
+                setBadge(`⏳ चरण 2/2: फसल व अन्य डेटा लोड हो रहा है…${warnP1}`);
+                toast(`${records.length} खसरा रिकॉर्ड मिले — अब खोज शुरू कर सकते हैं!`, 'success');
+                switchTab('statistics');
+
+            } catch (err) {
+                console.error('Phase1 crashed:', err);
+                onError('डेटा लोड विफल — कृपया पुनः प्रयास करें');
+                return;
+            }
+
+            // ════════════════════════════════════════════════════════
+            // PHASE 2: Optional tabs — background में, गाँव-एक-एक
+            // DCS Kharif, DCS Rabi, Bhuiyya, Charai, Nistar
+            // ════════════════════════════════════════════════════════
+            (async () => {
+                const failedVillages = [];
                 let doneCount = 0;
 
-                setBadge(`⏳ लोड हो रहा है… 0/${totalVillages} ग्राम`);
-
-                // ── Load villages SEQUENTIALLY to avoid Google rate-limiting ──
-                // (Each village's 6 tabs still load in parallel within that village)
                 for (const vName of villageNames) {
                     const cfg = VILLAGE_TABS[vName];
-                    setBadge(`⏳ लोड हो रहा है… ${doneCount}/${totalVillages} — ${vName}`);
+                    setBadge(`⏳ चरण 2/2: ${vName} (${doneCount+1}/${totalVillages}) — फसल डेटा…`);
 
                     try {
-                        // All 6 tabs for this village in parallel (only 6 concurrent, not 24)
-                        const tabResults = await Promise.allSettled([
-                            fetchCSV(cfg.khasra,        `${vName} (Khasra List)`),
+                        const [dkRes, drRes, bhRes, chRes, nsRes] = await Promise.allSettled([
                             fetchCSV(cfg.dcsKharif,     `${vName} (DCS Kharif)`),
                             fetchCSV(cfg.dcsRabi,       `${vName} (DCS Rabi)`),
                             fetchCSV(cfg.bhuiyya,       `${vName} (Bhuiyya)`),
@@ -1343,67 +1387,48 @@
                             fetchCSV(cfg.nistarPatrak,  `${vName} (Nistar)`),
                         ]);
 
-                        const [kRes, dkRes, drRes, bhRes, chRes, nsRes] = tabResults;
-
-                        // Khasra list is mandatory — if it failed, skip this village
-                        if (kRes.status === 'rejected') {
-                            console.error(`❌ Khasra list failed for ${vName}:`, kRes.reason);
-                            failedVillages.push(vName);
-                            doneCount++;
-                            continue;
-                        }
-
-                        // Optional tabs: use empty string if failed (will produce empty row arrays)
                         const safeGet = (res) => res.status === 'fulfilled' ? res.value : '';
-                        const khasraCSV = kRes.value;
-                        const dcsKCSV   = safeGet(dkRes);
-                        const dcsRCSV   = safeGet(drRes);
+                        const dcsKCSV    = safeGet(dkRes);
+                        const dcsRCSV    = safeGet(drRes);
                         const bhuiyyaCSV = safeGet(bhRes);
-                        const charaiCSV = safeGet(chRes);
-                        const nistarCSV = safeGet(nsRes);
+                        const charaiCSV  = safeGet(chRes);
+                        const nistarCSV  = safeGet(nsRes);
 
-                        // Log any optional tab failures (non-fatal)
-                        [['DCS Kharif', dkRes], ['DCS Rabi', drRes], ['Bhuiyya', bhRes],
-                         ['Charai', chRes], ['Nistar', nsRes]].forEach(([n, r]) => {
-                            if (r.status === 'rejected')
-                                console.warn(`⚠️ Optional tab ${n} failed for ${vName} — using empty data`);
-                        });
+                        // Phase 1 में cache किया था khasra CSV — re-fetch नहीं करना
+                        const khasraCSV = khasraCsvCache[vName] || '';
 
-                        const khasraRows  = parseCSVToRows(khasraCSV,  1);
-                        const dcsKRows    = dcsKCSV  ? parseCSVToRows(dcsKCSV,   0) : [];
-                        const dcsRRows    = dcsRCSV  ? parseCSVToRows(dcsRCSV,   0) : [];
-                        const bhuiyyaRows = bhuiyyaCSV ? parseCSVToRows(bhuiyyaCSV, 2) : [];
-                        const charaiRows  = charaiCSV ? parseCSVToRows(charaiCSV, 1) : [];
-                        const nistarRows  = nistarCSV ? parseCSVToRows(nistarCSV, 1) : [];
+                        if (khasraCSV) {
+                            const khasraRows  = parseCSVToRows(khasraCSV,  1);
+                            const dcsKRows    = dcsKCSV  ? parseCSVToRows(dcsKCSV,   0) : [];
+                            const dcsRRows    = dcsRCSV  ? parseCSVToRows(dcsRCSV,   0) : [];
+                            const bhuiyyaRows = bhuiyyaCSV ? parseCSVToRows(bhuiyyaCSV, 2) : [];
+                            const charaiRows  = charaiCSV ? parseCSVToRows(charaiCSV, 1) : [];
+                            const nistarRows  = nistarCSV ? parseCSVToRows(nistarCSV, 1) : [];
 
-                        const merged = mergeVillageData(vName, cfg.halka, khasraRows, dcsKRows, dcsRRows, bhuiyyaRows, charaiRows, nistarRows);
-                        allRows = allRows.concat(merged);
-                        console.log(`✅ ${vName}: ${merged.length} records merged`);
+                            const merged = mergeVillageData(vName, cfg.halka, khasraRows, dcsKRows, dcsRRows, bhuiyyaRows, charaiRows, nistarRows);
 
+                            // पुराने records में इस गाँव के replace करो
+                            records = records.filter(r => !(r.v && r.v.startsWith(vName))).concat(merged);
+                            console.log(`✅ Phase2 ${vName}: ${merged.length} records (full)`);
+                        }
                     } catch (vErr) {
-                        console.error(`❌ Village ${vName} load error:`, vErr);
+                        console.error(`❌ Phase2 ${vName}:`, vErr);
                         failedVillages.push(vName);
                     }
 
                     doneCount++;
-                    // Small delay between villages to be gentle on Google's servers
-                    if (doneCount < totalVillages) await sleep(300);
+                    if (doneCount < totalVillages) await sleep(200);
                 }
 
-                records = allRows;
-
-                if (records.length === 0) {
-                    onError('कोई भी रिकॉर्ड लोड नहीं हुआ — इंटरनेट या Google Sheet की जाँच करें');
-                    return;
-                }
-
+                // सभी data load complete
                 cachedRecords = records;
-                onSuccess(failedVillages);
-
-            } catch (err) {
-                console.error('loadData crashed:', err);
-                onError('डेटा लोड विफल — कृपया पुनः प्रयास करें');
-            }
+                fillVillages();
+                const warnPart = failedVillages.length
+                    ? ` <span style="color:#f0a500;">(${failedVillages.join(', ')} अधूरा)</span>` : '';
+                const badge2 = document.getElementById('recordCountBadge');
+                badge2.innerHTML = `✅ ${records.length} रिकॉर्ड (पूर्ण)${warnPart} <span onclick="loadData(true)" style="cursor:pointer;text-decoration:underline;margin-left:8px;font-size:11px;">🔄 रिफ्रेश</span>`;
+                if (!failedVillages.length) toast('सभी फसल व अन्य डेटा भी लोड हो गए ✅', 'success');
+            })();
         }
 
         function handleManualUpload(e) {
