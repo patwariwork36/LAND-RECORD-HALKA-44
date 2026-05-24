@@ -722,14 +722,17 @@
         </div>
     </header>
 
-    <!-- Debug log box (hidden by default, toggle with link above) -->
-    <div id="debugLogWrap" style="display:none;max-width:900px;margin:8px auto;padding:0 16px;">
+    <!-- Debug log box (visible by default, can toggle off) -->
+    <div id="debugLogWrap" style="display:block;max-width:900px;margin:8px auto;padding:0 16px;">
         <div style="background:#fff;border:2px solid #1a1a6e;border-radius:10px;padding:10px;">
-            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;flex-wrap:wrap;gap:6px;">
                 <strong style="color:#1a1a6e;font-size:13px;">🔍 Network Debug Log</strong>
-                <button onclick="document.getElementById('debugLog').innerHTML='';" style="background:#dc2626;color:#fff;border:none;border-radius:6px;padding:3px 10px;font-size:11px;font-weight:700;cursor:pointer;">Clear</button>
+                <div style="display:flex;gap:6px;">
+                    <button onclick="runConnectivityTest()" style="background:#1a1a6e;color:#fff;border:none;border-radius:6px;padding:4px 10px;font-size:11px;font-weight:700;cursor:pointer;">🧪 Test Connection</button>
+                    <button onclick="document.getElementById('debugLog').innerHTML='';" style="background:#dc2626;color:#fff;border:none;border-radius:6px;padding:4px 10px;font-size:11px;font-weight:700;cursor:pointer;">Clear</button>
+                </div>
             </div>
-            <div id="debugLog" style="max-height:200px;overflow-y:auto;background:#f8fafc;border-radius:6px;padding:6px;font-family:monospace;font-size:11px;"></div>
+            <div id="debugLog" style="max-height:240px;overflow-y:auto;background:#f8fafc;border-radius:6px;padding:6px;font-family:monospace;font-size:11px;"></div>
         </div>
     </div>
 
@@ -975,6 +978,74 @@
             const color = type === 'error' ? '#dc2626' : type === 'success' ? '#059669' : '#1a1a6e';
             box.innerHTML += `<div style="color:${color};border-bottom:1px solid #eee;padding:4px 0;font-family:monospace;font-size:11px;">[${time}] ${msg}</div>`;
             box.scrollTop = box.scrollHeight;
+        }
+
+        // Connectivity Test — direct में पता लगाता है कि problem कहाँ है
+        async function runConnectivityTest() {
+            const testGid = VILLAGE_TABS[Object.keys(VILLAGE_TABS)[0]].khasra;
+            const testUrl = makeCSVUrl(testGid);
+            debugLog('═══ TEST शुरू ═══', 'info');
+            debugLog('Sheet URL: ' + testUrl.substring(0, 80) + '...', 'info');
+
+            // Test 1: Direct fetch (CORS check)
+            debugLog('Test 1: Direct fetch (CORS test)...', 'info');
+            try {
+                const r = await fetch(testUrl, { signal: makeTimeoutSignal(10000), cache: 'no-store' });
+                const text = await r.text();
+                if (isValidCSV(text)) {
+                    debugLog(`✅ Direct OK — ${text.length} bytes, CSV valid`, 'success');
+                } else {
+                    debugLog(`⚠️ Direct: HTTP ${r.status}, but invalid CSV (first 80 chars): ${text.substring(0,80)}`, 'error');
+                }
+            } catch (e) {
+                debugLog(`❌ Direct failed: ${e.message} (likely CORS — expected on browsers)`, 'error');
+            }
+
+            // Test 2-4: Each proxy individually
+            for (let i = 0; i < PROXY_PREFIXES.length; i++) {
+                const p = PROXY_PREFIXES[i];
+                const proxyName = p.split('/')[2];
+                debugLog(`Test ${i+2}: ${proxyName}...`, 'info');
+                try {
+                    const r = await fetch(p + encodeURIComponent(testUrl), { signal: makeTimeoutSignal(15000), cache: 'no-store' });
+                    if (!r.ok) {
+                        debugLog(`❌ ${proxyName}: HTTP ${r.status} ${r.statusText}`, 'error');
+                        continue;
+                    }
+                    const text = await r.text();
+                    if (isValidCSV(text)) {
+                        debugLog(`✅ ${proxyName} OK — ${text.length} bytes, CSV valid`, 'success');
+                    } else {
+                        debugLog(`⚠️ ${proxyName}: HTTP ${r.status} but invalid CSV: ${text.substring(0,80)}`, 'error');
+                    }
+                } catch (e) {
+                    debugLog(`❌ ${proxyName}: ${e.message}`, 'error');
+                }
+            }
+
+            // Test 5: PapaParse
+            debugLog('Test 5: PapaParse direct...', 'info');
+            try {
+                await new Promise((resolve, reject) => {
+                    const t = setTimeout(() => reject(new Error('timeout 15s')), 15000);
+                    Papa.parse(testUrl, {
+                        download: true, header: false, skipEmptyLines: false,
+                        complete: (result) => {
+                            clearTimeout(t);
+                            if (result.data && result.data.length > 0) {
+                                debugLog(`✅ PapaParse OK — ${result.data.length} rows`, 'success');
+                                resolve();
+                            } else {
+                                debugLog(`❌ PapaParse: empty result`, 'error');
+                                reject(new Error('empty'));
+                            }
+                        },
+                        error: (err) => { clearTimeout(t); debugLog(`❌ PapaParse: ${err.message || 'error'}`, 'error'); reject(err); }
+                    });
+                });
+            } catch (e) { /* already logged */ }
+
+            debugLog('═══ TEST समाप्त ═══ अगर कोई भी ✅ नहीं है तो Sheet "Publish to web" बंद है या Google ने block कर दिया', 'info');
         }
 
         function fetchCSV(gid, tabName = '') {
